@@ -1,0 +1,6 @@
+linformer
+vit_pytorch
+pytorch_lightning
+torch
+tqdm
+git+git://github.com/sign-language-processing/datasets.git
