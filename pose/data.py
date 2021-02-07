@@ -1,7 +1,9 @@
 import os
+import random
 from os import path
 from typing import List
 
+import numpy as np
 import torch
 from pose_format import PoseHeader, Pose
 from pose_format.numpy.pose_body import NumPyPoseBody
@@ -62,6 +64,10 @@ class PoseClassificationDataset(Dataset):
       pose.body.data = pose.body.data.T[:POSE_DIMS].T
 
     if self.is_train:
+      # x direction flip 50% of the time for left handed / two handed signs
+      if random.randint(1, 10) <= 5:
+        pose = pose.flip(axis=0)
+
       pose = pose.augment2d()
 
     x = torch.tensor(pose.body.data.data, dtype=torch.float)
@@ -69,8 +75,8 @@ class PoseClassificationDataset(Dataset):
     return datum["id"], datum["signer"], x, datum["label"]
 
 
-def get_autsl():
-  cache_file = path.join(path.dirname(path.realpath(__file__)), "data.pt")
+def get_autsl(split: str):
+  cache_file = path.join(path.dirname(path.realpath(__file__)), split + "_data.pt")
   print("Cache file", cache_file)
   if os.path.isfile(cache_file):
     return torch.load(cache_file)
@@ -83,20 +89,18 @@ def get_autsl():
 
   config = SignDatasetConfig(name="poses", include_video=False, include_pose="holistic")
 
-  (training_set, test_set) = tfds.load(
+  data_set = tfds.load(
     'autsl',
     builder_kwargs=dict(config=config, train_decryption_key="", valid_decryption_key=""),
-    split=['train', 'validation'],
+    split=split,
     shuffle_files=False,
     as_supervised=False,
   )
 
-  test_set = PoseClassificationDataset.from_tfds(test_set)
-  training_set = PoseClassificationDataset.from_tfds(training_set, is_train=True)
+  data_set = PoseClassificationDataset.from_tfds(data_set)
 
-  res = training_set, test_set
-  torch.save(res, cache_file)
-  return res
+  torch.save(data_set, cache_file)
+  return data_set
 
 
 def split_train_dataset(dataset: PoseClassificationDataset, ids: set):
