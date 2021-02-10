@@ -18,10 +18,12 @@ model = PoseSequenceClassification.load_from_checkpoint(
 model = model.cuda()
 
 test.is_train = True  # TODO try majority voting for validation set, by doing augmentation?
+pred_runs = 1
+# test.is_train = False
+# pred_runs = 1
 
 test_loader = DataLoader(test, batch_size=batch_size)
 
-pred_runs = 10
 predictions = {datum["id"]: [] for datum in test.data}
 gold_values = {datum["id"]: datum["label"] for datum in test.data}
 

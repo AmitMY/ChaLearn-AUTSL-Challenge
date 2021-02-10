@@ -11,6 +11,12 @@ from pose_format.utils.reader import BufferReader
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
+
+# from pose_format.torch.pose_representation import TorchPoseRepresentation
+# from pose_format.torch.representation.angle import AngleRepresentation
+# from pose_format.torch.representation.distance import DistanceRepresentation
+
+
 POSE_COMPONENT = ["POSE_LANDMARKS", "LEFT_HAND_LANDMARKS", "RIGHT_HAND_LANDMARKS"]
 POSE_POINTS = 75
 POSE_DIMS = 2
@@ -20,6 +26,9 @@ class PoseClassificationDataset(Dataset):
   def __init__(self, data: List, is_train=False):
     self.data = data
     self.is_train = is_train
+
+    self.rep = None
+
 
   @staticmethod
   def from_tfds(tf_dataset, **kwargs):
@@ -59,6 +68,10 @@ class PoseClassificationDataset(Dataset):
     datum = self.data[index]
     pose = datum["pose"]
 
+    # # Setup pose representation
+    # if self.rep is None:
+    #   self.rep = TorchPoseRepresentation(pose.header, [AngleRepresentation(), DistanceRepresentation()])
+
     # Only use requested dimensions
     if POSE_DIMS != pose.body.data.shape[-1]:
       pose.body.data = pose.body.data.T[:POSE_DIMS].T
@@ -70,6 +83,8 @@ class PoseClassificationDataset(Dataset):
 
       pose = pose.augment2d()
 
+    # pose = pose.torch()
+    # x = self.rep(pose.body.data)
     x = torch.tensor(pose.body.data.data, dtype=torch.float)
 
     return datum["id"], datum["signer"], x, datum["label"]
