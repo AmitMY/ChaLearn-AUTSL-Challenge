@@ -5,13 +5,11 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from pose.args import args
 from pose.data import get_autsl
 from pose.model import PoseSequenceClassification
 
 test = get_autsl('validation')
-
-gpus = 1
-batch_size = max(1, gpus) * 1024
 
 model = PoseSequenceClassification.load_from_checkpoint(
   "/home/nlp/amit/sign-language/sign-language-recognition/pose/wandb/run-20210206_170707-111wpn4k/files/autsl/111wpn4k/checkpoints/epoch=26-step=606.ckpt")
@@ -22,7 +20,7 @@ pred_runs = 1
 # test.is_train = False
 # pred_runs = 1
 
-test_loader = DataLoader(test, batch_size=batch_size)
+test_loader = DataLoader(test, batch_size=args.batch_size)
 
 predictions = {datum["id"]: [] for datum in test.data}
 gold_values = {datum["id"]: datum["label"] for datum in test.data}

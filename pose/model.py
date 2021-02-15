@@ -1,25 +1,41 @@
 import torch
 from einops import repeat
 from linformer import Linformer
+from vit_pytorch.vit_pytorch import Transformer
+from pose_format.torch.masked import MaskedTensor
 
 from base_model import PLModule
-from pose.data import POSE_POINTS, POSE_DIMS
+from pose.args import POSE_REP, args
+
+pose_dim = POSE_REP.calc_output_size()
 
 
 class PoseSequenceClassification(PLModule):
-  def __init__(self, seq_len=32, dim=256, input_dim=POSE_POINTS * POSE_DIMS, num_classes=226):
+  def __init__(self, seq_len=32, dim=512, input_dim=pose_dim, num_classes=226):
     super().__init__()
 
-    self.norm = torch.nn.BatchNorm1d(num_features=input_dim)
+    self.batch_norm = torch.nn.BatchNorm1d(num_features=input_dim)
 
     self.proj = torch.nn.Linear(in_features=input_dim, out_features=dim)
 
-    self.transformer = Linformer(
+    heads = args.encoder_heads
+    depth = args.encoder_depth
+
+    # self.transformer = Linformer(
+    #   dim=dim,
+    #   seq_len=seq_len + 1,  # + 1 cls token
+    #   depth=depth,
+    #   heads=heads,
+    #   k=64,
+    #   dropout=0.4
+    # )
+
+    self.transformer = Transformer(
       dim=dim,
-      seq_len=seq_len + 1,  # + 1 cls token
-      depth=2,
-      heads=4,
-      k=64,
+      depth=depth,
+      heads=heads,
+      dim_head=dim // heads,
+      mlp_dim=dim,
       dropout=0.4
     )
 
@@ -31,13 +47,16 @@ class PoseSequenceClassification(PLModule):
       torch.nn.Linear(dim, num_classes)
     )
 
-  def norm_input(self, x):
-    batch, seq_len, people, points, dim = x.shape
-    x = x.view(batch, seq_len, -1)
-    # return x
+  def rep_input(self, x):
+    x = torch.squeeze(x)
+    masked = MaskedTensor(x)
+    x = POSE_REP(masked)
 
+    return x.squeeze()
+
+  def norm(self, x):
     x = x.transpose(1, 2)
-    x = self.norm(x)
+    x = self.batch_norm(x)
     return x.transpose(1, 2)
 
   def transform(self, x):
@@ -50,7 +69,8 @@ class PoseSequenceClassification(PLModule):
     return self.transformer(x)
 
   def forward(self, _id, signer, x):
-    x = self.norm_input(x)
+    x = self.rep_input(x)
+    x = self.norm(x)
     x = self.proj(x)
     x = self.transform(x)
 
