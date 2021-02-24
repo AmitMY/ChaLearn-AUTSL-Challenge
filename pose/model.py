@@ -1,85 +1,97 @@
 import torch
 from einops import repeat
-from linformer import Linformer
+from pose_format.torch.masked import MaskedTorch
 from vit_pytorch.vit_pytorch import Transformer
-from pose_format.torch.masked import MaskedTensor
+import torch.nn.functional as F
 
 from base_model import PLModule
-from pose.args import POSE_REP, args
+from pose.args import args, POSE_REP
 
 pose_dim = POSE_REP.calc_output_size()
 
 
 class PoseSequenceClassification(PLModule):
-  def __init__(self, seq_len=32, dim=512, input_dim=pose_dim, num_classes=226):
-    super().__init__()
+    def __init__(self, dim=1024, input_dim=pose_dim, num_classes=226):
+        super().__init__()
 
-    self.batch_norm = torch.nn.BatchNorm1d(num_features=input_dim)
+        self.batch_norm = torch.nn.BatchNorm1d(num_features=input_dim)
+        self.dropout = torch.nn.Dropout(p=0.2)
 
-    self.proj = torch.nn.Linear(in_features=input_dim, out_features=dim)
+        self.proj = torch.nn.Linear(in_features=input_dim, out_features=dim)
 
-    heads = args.encoder_heads
-    depth = args.encoder_depth
+        heads = args.encoder_heads
+        depth = args.encoder_depth
 
-    # self.transformer = Linformer(
-    #   dim=dim,
-    #   seq_len=seq_len + 1,  # + 1 cls token
-    #   depth=depth,
-    #   heads=heads,
-    #   k=64,
-    #   dropout=0.4
-    # )
+        # self.transformer = Linformer(
+        #   dim=dim,
+        #   seq_len=seq_len + 1,  # + 1 cls token
+        #   depth=depth,
+        #   heads=heads,
+        #   k=64,
+        #   dropout=0.4
+        # )
 
-    self.transformer = Transformer(
-      dim=dim,
-      depth=depth,
-      heads=heads,
-      dim_head=dim // heads,
-      mlp_dim=dim,
-      dropout=0.4
-    )
+        if args.encoder == "lstm":
+            self.encoder = torch.nn.LSTM(input_size=dim, hidden_size=dim//2, num_layers=depth, batch_first=True,
+                                         dropout=0.1,
+                                         bidirectional=True)
+        else:
+            self.encoder = Transformer(
+                dim=dim,
+                depth=depth,
+                heads=heads,
+                dim_head=dim // heads,
+                mlp_dim=dim,
+                dropout=0.4
+            )
 
-    self.cls_token = torch.nn.Parameter(torch.randn(1, 1, dim))
-    self.pos_embedding = torch.nn.Parameter(torch.randn(1, seq_len + 1, dim))
+        self.cls_token = torch.nn.Parameter(torch.randn(1, 1, dim))
+        self.pos_embedding = torch.nn.Parameter(torch.randn(1, args.max_seq_size + 1, dim))
 
-    self.mlp_head = torch.nn.Sequential(
-      torch.nn.LayerNorm(dim),
-      torch.nn.Linear(dim, num_classes)
-    )
+        self.mlp_head = torch.nn.Sequential(
+            torch.nn.LayerNorm(dim),
+            torch.nn.Linear(dim, num_classes)
+        )
 
-  def rep_input(self, x):
-    x = torch.squeeze(x)
-    masked = MaskedTensor(x)
-    x = POSE_REP(masked)
+    def rep_input(self, pose):
+        pose = MaskedTorch.squeeze(pose)
+        x = POSE_REP(pose).type(torch.float32)
 
-    return x.squeeze()
+        return x.squeeze()
 
-  def norm(self, x):
-    x = x.transpose(1, 2)
-    x = self.batch_norm(x)
-    return x.transpose(1, 2)
+    def norm(self, x):
+        x = x.transpose(1, 2)
+        x = self.batch_norm(x)
+        return x.transpose(1, 2)
 
-  def transform(self, x):
-    b, n, _ = x.shape
+    def transform(self, x, mask=None):
+        b, n, _ = x.shape
 
-    cls_tokens = repeat(self.cls_token, '() n d -> b n d', b=b)
-    x = torch.cat((cls_tokens, x), dim=1)
-    x += self.pos_embedding[:, :(n + 1)]
+        cls_tokens = repeat(self.cls_token, '() n d -> b n d', b=b)
+        x = torch.cat((cls_tokens, x), dim=1)
+        x += self.pos_embedding[:, :(n + 1)]
 
-    return self.transformer(x)
+        if isinstance(self.encoder, torch.nn.LSTM):
+            rep, _ = self.encoder(x)
+            input_max, input_indexes = torch.max(rep, dim=1) # max pooling
+            return input_max
 
-  def forward(self, _id, signer, x):
-    x = self.rep_input(x)
-    x = self.norm(x)
-    x = self.proj(x)
-    x = self.transform(x)
+            # return  torch.mean(rep, dim=1) # avg pooling
 
-    x = x[:, 0]  # Get CLS token
-    return self.mlp_head(x)
+        rep = self.encoder(x, mask)
+        return rep[:, 0]  # Get CLS token
+
+    def forward(self, batch):
+        x = self.rep_input(batch["pose"])
+        x = self.dropout(x)
+        x = self.norm(x)
+        x = self.proj(x)
+        x = self.transform(x, mask=batch["length"])
+        return self.mlp_head(x)
 
 
 if __name__ == "__main__":
-  pose = torch.randn(2, 32, 1, POSE_POINTS, POSE_DIMS)
-  model = PoseSequenceClassification()
-  pred = model(None, None, pose)
-  print(pred.shape)
+    pose = torch.randn(2, 32, 1, POSE_POINTS, POSE_DIMS)
+    model = PoseSequenceClassification()
+    pred = model(None, None, pose)
+    print(pred.shape)

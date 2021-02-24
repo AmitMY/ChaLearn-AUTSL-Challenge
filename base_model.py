@@ -26,14 +26,14 @@ class PLModule(pl.LightningModule):
   # Define steps
 
   def step(self, split: str, batch, batch_idx):
-    y = batch[-1]
-    y_hat = self(*batch[:-1])
+    y = batch["label"]
+    y_hat = self(batch)
 
     # self.logger.experiment.add_image('example_images', grid, 0)
 
     return {
       "loss": F.cross_entropy(y_hat, y),
-      "signer": batch[1],
+      "signer": batch["signer"],
       "pred": torch.argmax(y_hat, dim=1),
       "target": y
     }
