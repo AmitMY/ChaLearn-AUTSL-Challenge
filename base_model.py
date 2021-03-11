@@ -7,96 +7,105 @@ from pytorch_lightning import metrics
 
 
 class PLModule(pl.LightningModule):
-  def __init__(self):
-    super().__init__()
+    def __init__(self, sign_loss=1, signer_loss=1, signer_loss_patience=0):
+        super().__init__()
 
-    self.metrics = {
-      "training": metrics.Accuracy(),
-      "validation": metrics.Accuracy(),
-      "test": metrics.Accuracy(),
-    }
+        self.sign_loss = sign_loss
+        self.signer_loss = signer_loss
+        self.signer_loss_patience = signer_loss_patience
 
-  def configure_optimizers(self):
-    return torch.optim.Adam(self.parameters(), lr=1e-3)
+        self.metrics = {
+            "training": metrics.Accuracy(),
+            "validation": metrics.Accuracy(),
+            "test": metrics.Accuracy(),
+        }
 
-  def pred(self, *args):
-    y_hat = self.forward(*args)
-    return torch.argmax(y_hat, dim=1)
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=1e-3)
 
-  # Define steps
+    def pred(self, *args):
+        y_hat, signer_hat = self.forward(*args)
+        return torch.argmax(y_hat, dim=1)
 
-  def step(self, split: str, batch, batch_idx):
-    y = batch["label"]
-    y_hat = self(batch)
+    # Define steps
 
-    # self.logger.experiment.add_image('example_images', grid, 0)
+    def step(self, split: str, batch, batch_idx):
+        y = batch["label"]
+        signer = batch["signer"]
+        y_hat, signer_hat = self(batch)
 
-    return {
-      "loss": F.cross_entropy(y_hat, y),
-      "signer": batch["signer"],
-      "pred": torch.argmax(y_hat, dim=1),
-      "target": y
-    }
+        # self.logger.experiment.add_image('example_images', grid, 0)
 
-  def step_end(self, split: str, outputs):
-    self.log(f'{split}_loss', outputs["loss"], on_step=True, on_epoch=False)
-    acc = self.metrics[split](outputs["pred"].cpu(), outputs["target"].cpu())
-    self.log(f'{split}_acc', acc, on_step=True, on_epoch=False, prog_bar=True)
-    return outputs
+        loss = F.cross_entropy(y_hat, y)
+        if split == "training" and self.current_epoch > self.signer_loss_patience and self.signer_loss != 0:
+            loss = self.sign_loss * loss + self.signer_loss * F.cross_entropy(signer_hat, signer)
 
-  def epoch_end(self, split: str, outputs):
-    correct_by_signer = Counter()
-    signer_count = Counter()
+        return {
+            "loss": loss,
+            "signer": signer,
+            "pred": torch.argmax(y_hat, dim=1),
+            "target": y
+        }
 
-    loss = torch.stack([o["loss"] for o in outputs], dim=0).mean()
-    pred = torch.cat([o["pred"] for o in outputs])
-    target = torch.cat([o["target"] for o in outputs])
-    signer = torch.cat([o["signer"] for o in outputs]).cpu().numpy()
-    correct = (pred == target).cpu().numpy()
-    for s, v in zip(signer, correct):
-      signer_count[s] += 1
-      if v:
-        correct_by_signer[s] += 1
+    def step_end(self, split: str, outputs):
+        self.log(f'{split}_loss', outputs["loss"], on_step=True, on_epoch=False)
+        acc = self.metrics[split](outputs["pred"].cpu(), outputs["target"].cpu())
+        self.log(f'{split}_acc', acc, on_step=True, on_epoch=False, prog_bar=True)
+        return outputs
 
-    print("\n\nAcc by signer:")
-    print("Total %.3f" % (sum(correct_by_signer.values()) / sum(signer_count.values())))
-    for s in sorted(signer_count.keys()):
-      print("Signer\t%d\t%.3f\t(%d / %d)" %
-            (s, correct_by_signer[s] / signer_count[s], correct_by_signer[s], signer_count[s]))
-    print("\n")
+    def epoch_end(self, split: str, outputs):
+        correct_by_signer = Counter()
+        signer_count = Counter()
 
-    self.log(f'{split}_loss_epoch', loss, on_step=False, on_epoch=True)
-    self.log(f'{split}_acc_epoch', self.metrics[split].compute(), on_step=False, on_epoch=True)
+        loss = torch.stack([o["loss"] for o in outputs], dim=0).mean()
+        pred = torch.cat([o["pred"] for o in outputs])
+        target = torch.cat([o["target"] for o in outputs])
+        signer = torch.cat([o["signer"] for o in outputs]).cpu().numpy()
+        correct = (pred == target).cpu().numpy()
+        for s, v in zip(signer, correct):
+            signer_count[s] += 1
+            if v:
+                correct_by_signer[s] += 1
 
-  # Training steps
+        print("\n\nAcc by signer:")
+        print("Total %.3f" % (sum(correct_by_signer.values()) / sum(signer_count.values())))
+        for s in sorted(signer_count.keys()):
+            print("Signer\t%d\t%.3f\t(%d / %d)" %
+                  (s, correct_by_signer[s] / signer_count[s], correct_by_signer[s], signer_count[s]))
+        print("\n")
 
-  def training_step(self, batch, batch_idx):
-    return self.step("training", batch, batch_idx)
+        self.log(f'{split}_loss_epoch', loss, on_step=False, on_epoch=True)
+        self.log(f'{split}_acc_epoch', self.metrics[split].compute(), on_step=False, on_epoch=True)
 
-  def training_step_end(self, outputs):
-    return self.step_end("training", outputs)
+    # Training steps
 
-  def training_epoch_end(self, outputs):
-    return self.epoch_end("training", outputs)
+    def training_step(self, batch, batch_idx):
+        return self.step("training", batch, batch_idx)
 
-  # Validation steps
+    def training_step_end(self, outputs):
+        return self.step_end("training", outputs)
 
-  def validation_step(self, batch, batch_idx):
-    return self.step("validation", batch, batch_idx)
+    def training_epoch_end(self, outputs):
+        return self.epoch_end("training", outputs)
 
-  def validation_step_end(self, outputs):
-    return self.step_end("validation", outputs)
+    # Validation steps
 
-  def validation_epoch_end(self, outputs):
-    return self.epoch_end("validation", outputs)
+    def validation_step(self, batch, batch_idx):
+        return self.step("validation", batch, batch_idx)
 
-  # Validation steps
+    def validation_step_end(self, outputs):
+        return self.step_end("validation", outputs)
 
-  def test_step(self, batch, batch_idx):
-    return self.step("test", batch, batch_idx)
+    def validation_epoch_end(self, outputs):
+        return self.epoch_end("validation", outputs)
 
-  def test_step_end(self, outputs):
-    return self.step_end("test", outputs)
+    # Validation steps
 
-  def test_epoch_end(self, outputs):
-    return self.epoch_end("test", outputs)
+    def test_step(self, batch, batch_idx):
+        return self.step("test", batch, batch_idx)
+
+    def test_step_end(self, outputs):
+        return self.step_end("test", outputs)
+
+    def test_epoch_end(self, outputs):
+        return self.epoch_end("test", outputs)
