@@ -2,10 +2,9 @@ import torch
 from einops import repeat
 from pose_format.torch.masked import MaskedTorch
 from vit_pytorch.vit_pytorch import Transformer
-import torch.nn.functional as F
 
 from base_model import PLModule
-from pose.args import args, POSE_REP
+from .args import args, POSE_REP
 from pytorch_revgrad import RevGrad
 
 pose_dim = POSE_REP.calc_output_size()

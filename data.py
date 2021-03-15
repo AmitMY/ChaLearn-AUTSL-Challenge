@@ -15,7 +15,7 @@ from sign_language_datasets.datasets.config import SignDatasetConfig
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from pose.args import args, FLIPPED_COMPONENTS, HOLISTIC_POSE_HEADER, OPENPOSE_POSE_HEADER, POSE_HEADER
+from .args import args, FLIPPED_COMPONENTS, HOLISTIC_POSE_HEADER, OPENPOSE_POSE_HEADER, POSE_HEADER
 
 
 class ZeroPadCollator:
@@ -101,11 +101,12 @@ class PoseClassificationDataset(Dataset):
             # new_fps = (args.seq_size / len(pose.body.data)) * 30
             # pose = pose.interpolate(new_fps=new_fps, kind='linear')
 
+            gloss_id = datum["gloss_id"].numpy()
             data.append({
                 "id": datum["id"].numpy(),
                 "signer": datum["signer"].numpy(),
                 "pose": pose,
-                "label": datum["gloss_id"].numpy()
+                "label": gloss_id if gloss_id > 0 else 0
             })
 
         return PoseClassificationDataset(data, **kwargs)

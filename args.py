@@ -15,15 +15,16 @@ from pose_format.utils.reader import BufferReader
 root_dir = path.dirname(path.realpath(__file__))
 parser = ArgumentParser()
 
+parser.add_argument('--no_wandb', type=bool, default=False, help='ignore wandb?')
 # Training Arguments
-parser.add_argument('--seed', type=int, default=1, help='random seed')
+parser.add_argument('--seed', type=int, default=0, help='random seed')
 parser.add_argument('--gpus', type=int, default=1, help='how many gpus')
 parser.add_argument('--batch_size', type=int, default=512, help='batch size')
 # parser.add_argument('--val_signers', type=list, default=[0, 12, 8, 22], help='signers for the validation set')
 
 # Data Arguments
 parser.add_argument('--holistic', type=bool, default=True, help='Load holistic?')
-parser.add_argument('--openpose', type=bool, default=True, help='Load openpose?')
+parser.add_argument('--openpose', type=bool, default=False, help='Load openpose?')
 
 parser.add_argument('--max_seq_size', type=int, default=512, help='input sequence size')
 parser.add_argument('--fps', type=int, default=30, help='fps to load')

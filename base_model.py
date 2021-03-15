@@ -1,4 +1,6 @@
 from collections import Counter
+from itertools import chain
+from zipfile import ZipFile
 
 import pytorch_lightning as pl
 import torch
@@ -24,7 +26,7 @@ class PLModule(pl.LightningModule):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
 
     def pred(self, *args):
-        y_hat, signer_hat = self.forward(*args)
+        y_hat, signer_hat = self(*args)
         return torch.argmax(y_hat, dim=1)
 
     # Define steps
@@ -43,6 +45,7 @@ class PLModule(pl.LightningModule):
         return {
             "loss": loss,
             "signer": signer,
+            "id": batch["id"],
             "pred": torch.argmax(y_hat, dim=1),
             "target": y
         }
@@ -58,6 +61,7 @@ class PLModule(pl.LightningModule):
         signer_count = Counter()
 
         loss = torch.stack([o["loss"] for o in outputs], dim=0).mean()
+        ids = list(chain.from_iterable([o["id"] for o in outputs]))
         pred = torch.cat([o["pred"] for o in outputs])
         target = torch.cat([o["target"] for o in outputs])
         signer = torch.cat([o["signer"] for o in outputs]).cpu().numpy()
@@ -76,6 +80,14 @@ class PLModule(pl.LightningModule):
 
         self.log(f'{split}_loss_epoch', loss, on_step=False, on_epoch=True)
         self.log(f'{split}_acc_epoch', self.metrics[split].compute(), on_step=False, on_epoch=True)
+
+        if split == "test":
+            with open("predictions.csv", "w") as f:
+                for _id, p in zip(ids, pred.cpu().numpy()):
+                    f.write(_id.decode('utf-8') + "," + str(p) + "\n")
+
+            with ZipFile('predictions.zip', 'w') as zipObj:
+                zipObj.write("predictions.csv")
 
     # Training steps
 
