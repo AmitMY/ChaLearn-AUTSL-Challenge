@@ -14,20 +14,12 @@ from pose_format.torch.representation.points import PointsRepresentation
 from pose_format.utils.reader import BufferReader
 
 def valid_appearance_option(value):
-    if value in ["from_splis_signers", "all_splits_appearances"]:
+    if value in ["from_splits_signers", "all_splits_appearances"]:
         return value
     elif os.path.isfile(value):
         return value
     else:
-        raise argparse.ArgumentTypeError(f"Invalid value for --appearances: {value}. Must be one of 'from_splis_signers', 'all_splits_appearances', or a valid file path.")
-
-def parse_int_list(value):
-    try:
-        # Splits the string on commas and converts each element to an integer
-        return [int(item) for item in value.split(',')]
-    except ValueError:
-        # Raises an error if conversion fails
-        raise argparse.ArgumentTypeError(f"List of integers expected, got '{value}'")
+        raise argparse.ArgumentTypeError(f"Invalid value for --appearances: {value}. Must be one of 'from_splits_signers', 'all_splits_appearances', or a valid file path.")
 
 root_dir = path.dirname(path.realpath(__file__))
 parser = ArgumentParser()
@@ -74,8 +66,8 @@ parser.add_argument('--rep_angles', type=bool, default=True, help='use limb angl
 # Pose Anonymization Arguments
 parser.add_argument('--anonymize', type=bool, default=False, help='If True, anonymizes the poses.')
 parser.add_argument('--transfer_appearance', type=bool, default=False, help='If True, randomly transfers the apperance of poses.')
-parser.add_argument('--appearances', type=valid_appearance_option, default="from_splis_signers", 
-                    help="Choose from 'from_splis_signers', 'all_splits_appearances', or provide a valid file path.")
+parser.add_argument('--appearances', type=valid_appearance_option, default="from_splits_signers", 
+                    help="Choose from 'from_splits_signers', 'all_splits_appearances', or provide a valid file path.")
 parser.add_argument('--validation_signers_fraction', type=float, default=0.1, 
                     help="Value to be used when spliting the amount of appearneces between train and validation.")
 
@@ -86,8 +78,9 @@ parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help='P
 # Add arguments for evaluation
 parser.add_argument('--pretrained_checkpoint', type=str, default='checkpoints', help='Path to the model to be evaluated.')
 parser.add_argument('--predictions_output', type=str, default='predictions.csv', help='Path to the file in which to save the results.')
-parser.add_argument('--test_appearances_ids', type=parse_int_list, default='76,118,784,418,995,478,425,273,967,610',
-                    help="Provide a comma-separated list of integers.")
+parser.add_argument('--test_appearances_ids', nargs="+", type=int, default=[76, 118, 784, 418, 995, 478, 425, 273, 967, 610],
+                    help="Provide a list of integers separated by spaces.")
+
 
 # each LightningModule defines arguments relevant to it
 args = parser.parse_args()

@@ -58,11 +58,9 @@ class PoseSequenceClassification(PLModule):
         return x.transpose(1, 2)
 
     def transform(self, x, mask=None):
-        #print(f"x_inputed ({x.shape})") # x_inputed (torch.Size([512, 116, 512]))
         b, n, _ = x.shape
 
         mask = mask.to(x.device) if mask is not None else None
-
 
         cls_tokens = repeat(self.cls_token, '() n d -> b n d', b=b)
         x = torch.cat((cls_tokens, x), dim=1)
@@ -76,23 +74,14 @@ class PoseSequenceClassification(PLModule):
             print(f"input_indexes ({input_indexes.shape})")
             return input_max
 
-        #print(f"mask_before ({mask.shape}): \n {mask}") # mask_before (torch.Size([512, 116])):
-
         # Invert the mask to match PyTorch's expectation and add padding for the CLS token
         if mask is not None:
             mask = ~mask
             # Add a False value at the beginning of each sequence in the mask for the CLS token
             mask = torch.cat((torch.zeros(mask.size(0), 1, device=mask.device, dtype=mask.dtype), mask), dim=1)
 
-            #mask = mask.transpose(0, 1)
-
-        #print(f"mask_after ({mask.shape}): \n {mask}") # mask_after (torch.Size([117, 512])):
-        #print(f"x_after ({x.shape})") # x_after (torch.Size([512, 117, 512])) (B, T, E)
-        x = x.transpose(0, 1) # (B, T, E) -> (T, B, E)
-
-        x = self.encoder(x, src_key_padding_mask=mask).transpose(0, 1) # (T, B, E) - >(B, T, E)
-
-        #print(f"x_final ({x.shape})") # x_after (torch.Size([512, 117, 512])) (B, T, E)
+        x = self.encoder(x.transpose(0, 1), src_key_padding_mask=mask).transpose(0, 1) # (T, B, E) -> (B, T, E)
+        
         return x[:, 0]  # Get CLS token
 
     def forward(self, batch):

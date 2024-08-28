@@ -77,7 +77,7 @@ class PoseClassificationDataset(Dataset):
         self.signers_poses = signers_poses
 
     @staticmethod
-    def from_tfds(tf_dataset, pose_type: str, anonymize: bool = False, transfer_appearance: bool = False, **kwargs):
+    def from_tfds(tf_dataset, pose_type: str, **kwargs):
         data = []
 
         header = HOLISTIC_POSE_HEADER if pose_type == "holistic" else OPENPOSE_POSE_HEADER
@@ -105,8 +105,6 @@ class PoseClassificationDataset(Dataset):
                 pose = pose.get_components(args.holistic_pose_components)
 
             pose = pose.normalize(normalization_info)
-            # new_fps = (args.seq_size / len(pose.body.data)) * 30
-            # pose = pose.interpolate(new_fps=new_fps, kind='linear')
 
             gloss_id = datum["gloss_id"].numpy()
             data.append({
@@ -118,8 +116,6 @@ class PoseClassificationDataset(Dataset):
             if datum["signer"].numpy() not in signers_poses:
                 signers_poses[datum["signer"].numpy()] = pose
 
-        kwargs['anonymize'] = anonymize
-        kwargs['transfer_appearance'] = transfer_appearance
         kwargs['signers_poses'] = signers_poses
         return PoseClassificationDataset(data, **kwargs)
 
@@ -136,7 +132,6 @@ class PoseClassificationDataset(Dataset):
         elif self.transfer_appearance:
             key = random.choice(list(self.signers_poses.keys()))
             target_appearance_pose = self.signers_poses[key]
-            #target_appearance_pose = self.signers_poses[random.randint(0, len(self.signers_poses) - 1)]
             pose = transfer_appearance(pose=pose, appearance_pose=target_appearance_pose)
         torch_body_data = pose.body.torch().data
 
@@ -183,7 +178,6 @@ def get_autsl_format(split: str, pose: str, anonymize: bool = False, transfer_ap
 
     return PoseClassificationDataset.from_tfds(data_set, pose, anonymize, transfer_appearance)
 
-# WARNING:root:signers_poses: dict_keys([21, 8, 3, 38, 4, 10, 12, 7, 26, 13, 17, 42, 41, 33, 2, 24, 0, 5, 32, 15, 22, 29, 36, 23, 9, 19, 40, 28, 31, 37, 20])
 def split_train_dataset(dataset: PoseClassificationDataset, ids):
     ids = set(ids)
     train_data = [d for d in dataset.data if d["signer"] not in ids]

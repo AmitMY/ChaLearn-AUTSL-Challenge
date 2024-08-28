@@ -33,11 +33,6 @@ if __name__ == '__main__':
 
     collator = ZeroPadCollator()
 
-    print("#######################################################")
-    print(f"args.appearances ({type(args.appearances)}): {args.appearances}")
-    print(f"os.path.isfile(value): {os.path.isfile(args.appearances)}")
-    print("#######################################################")
-
     train = get_autsl('train')
     val = get_autsl('validation')
 
@@ -77,8 +72,6 @@ if __name__ == '__main__':
     val_loader = DataLoader(val, batch_size=args.batch_size, collate_fn=collator.collate)
 
     model = PoseSequenceClassification()
-    # model = PoseSequenceClassification.load_from_checkpoint(
-    #   "/home/nlp/amit/sign-language/sign-language-recognition/pose/models/27osn0ga/weights.ckpt.ckpt")
 
     callbacks = []
 

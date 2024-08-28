@@ -28,6 +28,7 @@ def augmented_evaluation(model, test, collator, gold_values):
 
   _predictions = {datum["id"]: [] for datum in test.data}
 
+  print(f"args.test_appearances_ids: {args.test_appearances_ids}")
   with torch.no_grad():
     for index in tqdm(range(len(test))):
       batch = []
