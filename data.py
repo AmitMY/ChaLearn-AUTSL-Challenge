@@ -69,12 +69,12 @@ class PoseClassificationMockDataset(Dataset):
 
 
 class PoseClassificationDataset(Dataset):
-    def __init__(self, data: List, is_train=False, anonymize=False, transfer_appearance=False, signers_poses={}):
+    def __init__(self, data: List, **kwargs):
         self.data = data
-        self.is_train = is_train
-        self.anonymize = anonymize
-        self.transfer_appearance = transfer_appearance
-        self.signers_poses = signers_poses
+        self.is_train = kwargs.get('is_train', False)
+        self.anonymize = kwargs.get('anonymize', False)
+        self.transfer_appearance = kwargs.get('transfer_appearance', False)
+        self.signers_poses = kwargs.get('signers_poses', {})
 
     @staticmethod
     def from_tfds(tf_dataset, pose_type: str, **kwargs):
@@ -176,7 +176,7 @@ def get_autsl_format(split: str, pose: str, anonymize: bool = False, transfer_ap
         as_supervised=False,
     )
 
-    return PoseClassificationDataset.from_tfds(data_set, pose, anonymize, transfer_appearance)
+    return PoseClassificationDataset.from_tfds(data_set, pose, anonymize=anonymize, transfer_appearance=transfer_appearance)
 
 def split_train_dataset(dataset: PoseClassificationDataset, ids):
     ids = set(ids)

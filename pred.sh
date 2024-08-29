@@ -10,14 +10,15 @@ export APPEARANCES_FILE="/home/gsantm/store/pose_anonymization_experiments/poses
 
 cd /home/gsantm/repositories/ChaLearn-AUTSL-Challenge
 
-python pred_debug.py \
+python pred.py \
     --no_wandb True \
     --checkpoint_dir $CHECKPOINT_DIR \
     --encoder transformer \
-    --anonymize True \
+    --transfer_appearance False \
+    --test_appearances_ids 123 456 789 101 112 \
     --appearances $APPEARANCES_FILE \
     --pretrained_checkpoint "${CHECKPOINT_DIR}/${CHECKPOINT_NAME}.ckpt" \
     --predictions_output "${OUT_PATH}/${CHECKPOINT_NAME}.csv"
 
+    #--anonymize True \
     #
-    #--transfer_appearance False \

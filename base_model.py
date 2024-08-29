@@ -17,11 +17,8 @@ class PLModule(pl.LightningModule):
         self.signer_loss_patience = signer_loss_patience
 
         # Metrics for training and validation
-        self.train_accuracy = Accuracy(num_classes=226, task="multiclass")
-        self.train_loss = MeanMetric()
-        self.val_accuracy = Accuracy(num_classes=226, task="multiclass")
-        self.val_loss = MeanMetric()
-        self.test_accuracy = Accuracy(num_classes=226, task="multiclass")
+        self.metrics = {split: Accuracy(num_classes=226, task="multiclass") for split in ["training", "validation", "test"]}
+        self.mean_loss = {split: MeanMetric() for split in ["training", "validation", "test"]}
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
@@ -34,35 +31,33 @@ class PLModule(pl.LightningModule):
         y = batch["label"]
         signer = batch["signer"]
         y_hat, signer_hat = self(batch)
-        
+
+        self.metrics[split] = self.metrics[split].to(y_hat.device) if self.metrics[split].device != y_hat.device else self.metrics[split]
+        self.mean_loss[split] = self.mean_loss[split].to(y_hat.device) if self.mean_loss[split].device != y_hat.device else self.mean_loss[split]
+
         loss = F.cross_entropy(y_hat, y)
         if split == "training" and self.current_epoch > self.signer_loss_patience and self.signer_loss != 0:
             loss += self.signer_loss * F.cross_entropy(signer_hat, signer)
 
         # Using metrics for training and validation
-        if split == 'training':
-            self.train_accuracy(y_hat, y)
-            self.train_loss(loss)
-            self.log(f'{split}_acc', self.train_accuracy, on_step=True, on_epoch=True, prog_bar=True, batch_size=batch["pose"].size(0))
-            self.log(f'{split}_loss', self.train_loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=batch["pose"].size(0))
-        elif split == 'validation':
-            self.val_accuracy(y_hat, y)
-            self.val_loss(loss)
-            self.log(f'{split}_acc', self.val_accuracy, on_step=True, on_epoch=True, prog_bar=True, batch_size=batch["pose"].size(0))
-            self.log(f'{split}_loss', self.val_loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=batch["pose"].size(0))
+
+        self.metrics[split](y_hat, y)
+        self.mean_loss[split](loss)
+        self.log(f'{split}_acc', self.metrics[split].compute(), on_step=True, on_epoch=True, prog_bar=True, batch_size=batch["pose"].size(0))
+        self.log(f'{split}_loss', self.mean_loss[split].compute(), on_step=True, on_epoch=True, prog_bar=True, batch_size=batch["pose"].size(0))
         return {"loss": loss, "pred": torch.argmax(y_hat, dim=1), "target": y}
 
     def on_train_epoch_end(self):
-        self.log('train_acc_epoch', self.train_accuracy.compute())
-        self.log('train_loss_epoch', self.train_loss.compute())
-        self.train_accuracy.reset()
-        self.train_loss.reset()
+        self.log('train_acc_epoch', self.metrics['training'].compute())
+        self.log('train_loss_epoch', self.mean_loss['training'].compute())
+        self.metrics['training'].reset()
+        self.mean_loss['training'].reset()
 
     def on_validation_epoch_end(self):
-        self.log('val_acc_epoch', self.val_accuracy.compute())
-        self.log('val_loss_epoch', self.val_loss.compute())
-        self.val_accuracy.reset()
-        self.val_loss.reset()
+        self.log('val_acc_epoch', self.metrics['validation'].compute())
+        self.log('val_loss_epoch', self.mean_loss['validation'].compute())
+        self.metrics['validation'].reset()
+        self.mean_loss['validation'].reset()
 
     def on_test_epoch_end(self):
         self.log('test_acc_epoch', self.test_accuracy.compute())

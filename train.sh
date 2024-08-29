@@ -8,7 +8,7 @@ export APPEARANCES_FILE="/home/gsantm/store/pose_anonymization_experiments/poses
 
 cd /home/gsantm/repositories/ChaLearn-AUTSL-Challenge
 
-python train_debug.py \
+python train.py \
     --no_wandb True \
     --checkpoint_dir $CHECKPOINT_DIR \
     --encoder transformer \
