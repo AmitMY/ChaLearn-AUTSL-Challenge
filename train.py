@@ -13,16 +13,6 @@ from args import args
 from data import get_autsl, ZeroPadCollator
 from model import PoseSequenceClassification
 
-def extract_subdictionary(original_dict, fraction=0.1):
-    if fraction <= 0:
-        return original_dict
-    num_to_extract = int(len(original_dict) * fraction)
-    keys_to_extract = random.sample(list(original_dict.keys()), num_to_extract)
-    new_dict = {key: original_dict[key] for key in keys_to_extract}
-    for key in keys_to_extract:
-        del original_dict[key]
-    return new_dict
-
 if __name__ == '__main__':
     if not args.no_wandb:
         logger = WandbLogger(project="autsl", log_model=False, offline=False)
@@ -61,9 +51,8 @@ if __name__ == '__main__':
             apperances_dict = {}
             for frame_index in range(appearances_file.body.data.shape[0]):
                 apperances_dict[frame_index] = Pose(appearances_file.header, appearances_file.body[frame_index:frame_index+1])
-            val_apperances_dict = extract_subdictionary(apperances_dict, fraction=args.validation_signers_fraction)
             train.signers_poses = apperances_dict
-            val.signers_poses = val_apperances_dict
+            val.signers_poses = apperances_dict
 
     train_loader = DataLoader(train, batch_size=args.batch_size, shuffle=True, collate_fn=collator.collate)
     val_loader = DataLoader(val, batch_size=args.batch_size, collate_fn=collator.collate)
@@ -81,7 +70,7 @@ if __name__ == '__main__':
     ))
 
     num_gpus = torch.cuda.device_count()
-    devices = num_gpus if num_gpus > 0 else 1
+    devices = max(num_gpus, 1)
 
     trainer = pl.Trainer(
         max_epochs=50,

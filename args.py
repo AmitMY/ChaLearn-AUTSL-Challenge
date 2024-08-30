@@ -68,8 +68,6 @@ parser.add_argument('--anonymize', type=bool, default=False, help='If True, anon
 parser.add_argument('--transfer_appearance', type=bool, default=False, help='If True, randomly transfers the apperance of poses.')
 parser.add_argument('--appearances', type=valid_appearance_option, default="from_splits_signers", 
                     help="Choose from 'from_splits_signers', 'all_splits_appearances', or provide a valid file path.")
-parser.add_argument('--validation_signers_fraction', type=float, default=0.1, 
-                    help="Value to be used when spliting the amount of appearneces between train and validation.")
 
 # Add arguments for output paths
 parser.add_argument('--log_dir', type=str, default='logs', help='Path in which to save logs')
