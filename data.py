@@ -15,7 +15,9 @@ from sign_language_datasets.datasets.config import SignDatasetConfig
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from .args import args, FLIPPED_COMPONENTS, HOLISTIC_POSE_HEADER, OPENPOSE_POSE_HEADER, POSE_HEADER
+from pose_anonymization.appearance import remove_appearance, transfer_appearance
+
+from args import args, FLIPPED_COMPONENTS, HOLISTIC_POSE_HEADER, OPENPOSE_POSE_HEADER, POSE_HEADER
 
 
 class ZeroPadCollator:
@@ -67,9 +69,12 @@ class PoseClassificationMockDataset(Dataset):
 
 
 class PoseClassificationDataset(Dataset):
-    def __init__(self, data: List, is_train=False):
+    def __init__(self, data: List, **kwargs):
         self.data = data
-        self.is_train = is_train
+        self.is_train = kwargs.get('is_train', False)
+        self.anonymize = kwargs.get('anonymize', False)
+        self.transfer_appearance = kwargs.get('transfer_appearance', False)
+        self.signers_poses = kwargs.get('signers_poses', {})
 
     @staticmethod
     def from_tfds(tf_dataset, pose_type: str, **kwargs):
@@ -85,6 +90,8 @@ class PoseClassificationDataset(Dataset):
             p2=("BODY_135", "LShoulder")
         )
 
+        signers_poses = {}
+
         for datum in tqdm(tf_dataset):
             body = NumPyPoseBody(30, datum["pose"]["data"].numpy(), datum["pose"]["conf"].numpy())
 
@@ -98,8 +105,6 @@ class PoseClassificationDataset(Dataset):
                 pose = pose.get_components(args.holistic_pose_components)
 
             pose = pose.normalize(normalization_info)
-            # new_fps = (args.seq_size / len(pose.body.data)) * 30
-            # pose = pose.interpolate(new_fps=new_fps, kind='linear')
 
             gloss_id = datum["gloss_id"].numpy()
             data.append({
@@ -108,7 +113,10 @@ class PoseClassificationDataset(Dataset):
                 "pose": pose,
                 "label": gloss_id if gloss_id > 0 else 0
             })
+            if datum["signer"].numpy() not in signers_poses:
+                signers_poses[datum["signer"].numpy()] = pose
 
+        kwargs['signers_poses'] = signers_poses
         return PoseClassificationDataset(data, **kwargs)
 
     def __len__(self):
@@ -118,21 +126,13 @@ class PoseClassificationDataset(Dataset):
         datum = self.data[index]
         pose = datum["pose"]
 
-        # # Setup pose representation
-        # if self.rep is None:
-        #   self.rep = TorchPoseRepresentation(pose.header, [AngleRepresentation(), DistanceRepresentation()])
+        if self.anonymize:
+            pose = remove_appearance(pose)
 
-        if self.is_train:
-            # x direction flip 50% of the time for left handed / two handed signs
-            if random.randint(1, 10) <= 5:
-                pose = pose.flip(axis=0).get_components(FLIPPED_COMPONENTS, {"POSE_LANDMARKS": FLIPPED_BODY_POINTS})
-
-            if args.frame_dropout_std > 0:
-                pose, _ = pose.frame_dropout(dropout_std=args.frame_dropout_std)
-            if args.rotation_std > 0 or args.scale_std > 0 or args.shear_std > 0:
-                pose = pose.augment2d(rotation_std=args.rotation_std, scale_std=args.scale_std,
-                                      shear_std=args.shear_std)
-
+        elif self.transfer_appearance:
+            key = random.choice(list(self.signers_poses.keys()))
+            target_appearance_pose = self.signers_poses[key]
+            pose = transfer_appearance(pose=pose, appearance_pose=target_appearance_pose)
         torch_body_data = pose.body.torch().data
 
         return {
@@ -144,12 +144,12 @@ class PoseClassificationDataset(Dataset):
         }
 
 
-def get_autsl(split: str):
+def get_autsl(split: str, anonymize: bool = False, transfer_appearance: bool = False):
     datasets = []
     if args.holistic:
-        datasets.append(get_autsl_format(split, "holistic"))
+        datasets.append(get_autsl_format(split=split, pose="holistic", anonymize=anonymize, transfer_appearance=transfer_appearance))
     if args.openpose:
-        datasets.append(get_autsl_format(split, "openpose"))
+        datasets.append(get_autsl_format(split=split, pose="openpose", anonymize=anonymize, transfer_appearance=transfer_appearance))
 
     if len(datasets) > 1:
         for dataset in datasets:
@@ -165,28 +165,32 @@ def get_autsl(split: str):
     return datasets[0]
 
 
-def get_autsl_format(split: str, pose: str):
+def get_autsl_format(split: str, pose: str, anonymize: bool = False, transfer_appearance: bool = False):
     name = "poses-new-" + str(args.fps) if pose == "holistic" else "openpose-" + str(args.fps)
     config = SignDatasetConfig(name=name, include_video=False, include_pose=pose, fps=args.fps)
-
     data_set = tfds.load(
         'autsl',
-        builder_kwargs=dict(config=config, train_decryption_key="", valid_decryption_key="", test_decryption_key=""),
+        builder_kwargs=dict(config=config), # train_decryption_key="", valid_decryption_key="", test_decryption_key=""
         split=split,
         shuffle_files=False,
         as_supervised=False,
     )
 
-    return PoseClassificationDataset.from_tfds(data_set, pose)
-
+    return PoseClassificationDataset.from_tfds(data_set, pose, anonymize=anonymize, transfer_appearance=transfer_appearance)
 
 def split_train_dataset(dataset: PoseClassificationDataset, ids):
     ids = set(ids)
     train_data = [d for d in dataset.data if d["signer"] not in ids]
     valid_data = [d for d in dataset.data if d["signer"] in ids]
+    anonymize = dataset.anonymize
+    transfer_appearance = dataset.transfer_appearance
+    signers_poses = dataset.signers_poses
 
-    return PoseClassificationDataset(train_data, is_train=True), PoseClassificationDataset(valid_data, is_train=False)
+    return PoseClassificationDataset(train_data, is_train=True, anonymize=anonymize, transfer_appearance=transfer_appearance, signers_poses=signers_poses), PoseClassificationDataset(valid_data, is_train=False, anonymize=anonymize, transfer_appearance=transfer_appearance, signers_poses=signers_poses)
 
 
 if __name__ == "__main__":
-    get_autsl()
+    split_type = "train"  # or 'test' or 'validation' depending on your needs
+    anonymize=False
+    transfer_appearance=False
+    get_autsl(split=split_type, anonymize=anonymize, transfer_appearance=transfer_appearance)

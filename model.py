@@ -1,14 +1,12 @@
 import torch
 from einops import repeat
 from pose_format.torch.masked import MaskedTorch
-from vit_pytorch.vit_pytorch import Transformer
 
 from base_model import PLModule
-from .args import args, POSE_REP
+from args import args, POSE_REP
 from pytorch_revgrad import RevGrad
 
 pose_dim = POSE_REP.calc_output_size()
-
 
 class PoseSequenceClassification(PLModule):
     def __init__(self, dim=512, input_dim=pose_dim, num_classes=226, num_signers=50):
@@ -22,27 +20,21 @@ class PoseSequenceClassification(PLModule):
         heads = args.encoder_heads
         depth = args.encoder_depth
 
-        # self.transformer = Linformer(
-        #   dim=dim,
-        #   seq_len=seq_len + 1,  # + 1 cls token
-        #   depth=depth,
-        #   heads=heads,
-        #   k=64,
-        #   dropout=0.4
-        # )
-
         if args.encoder == "lstm":
-            self.encoder = torch.nn.LSTM(input_size=dim, hidden_size=dim//2, num_layers=depth, batch_first=True,
+            self.encoder = torch.nn.LSTM(input_size=dim, hidden_size=dim // 2, num_layers=depth, batch_first=True,
                                          dropout=0.1,
                                          bidirectional=True)
         else:
-            self.encoder = Transformer(
-                dim=dim,
-                depth=depth,
-                heads=heads,
-                dim_head=dim // heads,
-                mlp_dim=dim,
-                dropout=0.4
+            encoder_layer = torch.nn.TransformerEncoderLayer(
+                d_model=dim,
+                nhead=heads,
+                dim_feedforward=dim * 4,  # Typically this is set to 4*dim
+                dropout=0.4,
+                activation='gelu'  # or 'relu' based on your preference
+            )
+            self.encoder = torch.nn.TransformerEncoder(
+                encoder_layer=encoder_layer,
+                num_layers=depth
             )
 
         self.cls_token = torch.nn.Parameter(torch.randn(1, 1, dim))
@@ -58,9 +50,6 @@ class PoseSequenceClassification(PLModule):
     def rep_input(self, pose):
         pose = MaskedTorch.squeeze(pose)
         x = POSE_REP(pose).type(torch.float32)
-        # print("rep_input", pose.shape,             POSE_REP.calc_output_size(), x.shape)
-
-
         return x.squeeze()
 
     def norm(self, x):
@@ -71,19 +60,29 @@ class PoseSequenceClassification(PLModule):
     def transform(self, x, mask=None):
         b, n, _ = x.shape
 
+        mask = mask.to(x.device) if mask is not None else None
+
         cls_tokens = repeat(self.cls_token, '() n d -> b n d', b=b)
         x = torch.cat((cls_tokens, x), dim=1)
         x += self.pos_embedding[:, :(n + 1)]
 
         if isinstance(self.encoder, torch.nn.LSTM):
             rep, _ = self.encoder(x)
-            input_max, input_indexes = torch.max(rep, dim=1) # max pooling
+            input_max, input_indexes = torch.max(rep, dim=1)  # max pooling
+            print(f"rep ({rep.shape})")
+            print(f"input_max ({input_max.shape})")
+            print(f"input_indexes ({input_indexes.shape})")
             return input_max
 
-            # return  torch.mean(rep, dim=1) # avg pooling
+        # Invert the mask to match PyTorch's expectation and add padding for the CLS token
+        if mask is not None:
+            mask = ~mask
+            # Add a False value at the beginning of each sequence in the mask for the CLS token
+            mask = torch.cat((torch.zeros(mask.size(0), 1, device=mask.device, dtype=mask.dtype), mask), dim=1)
 
-        rep = self.encoder(x, mask)
-        return rep[:, 0]  # Get CLS token
+        x = self.encoder(x.transpose(0, 1), src_key_padding_mask=mask).transpose(0, 1) # (T, B, E) -> (B, T, E)
+        
+        return x[:, 0]  # Get CLS token
 
     def forward(self, batch):
         x = self.rep_input(batch["pose"])
